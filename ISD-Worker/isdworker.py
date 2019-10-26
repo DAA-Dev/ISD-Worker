@@ -86,9 +86,9 @@ class StationWindow():
 
 
     # Local method, deletes gz files if pulled for a station
-    # Not sure this will even be necessary
     def clean_data(self):
         return None
+    # The function above may not be necessary
 
     # Creates or updates the current window snapshot with up to date weather information
     # Use self.data_worker to work with gz files
