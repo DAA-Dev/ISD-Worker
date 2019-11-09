@@ -1,4 +1,4 @@
-import os, logging, folium, gzip, datetime
+import os, logging, folium, gzip, datetime, sys
 from ftplib import FTP
 from txtparsing import DataWorker
 
@@ -34,20 +34,11 @@ META_WORKER =  DataWorker(LOC_FOLS['templates']+TEMP_FILES['station-list-temp'])
 # Class in order to represent a viewing window in the GUI
 class StationWindow():
     def __init__(self, gps_bot_left, gps_top_right, interest_year):
-        META_WORKER.read_filter(LOC_FOLS['metadata']+META_FILES['station-list'], 
-                                     LOC_FOLS['metadata']+META_FILES['rectangle-list'], 
-                                     ['lat', gps_bot_left[0], gps_top_right[0]], 
-                                     filter2=['lon', gps_bot_left[1], gps_top_right[1]])
-        self.interest_year = interest_year
-
         self.data_file = LOC_FOLS['metadata']+META_FILES['rectangle-list']
-        self.station_list = []
+        self.interest_year = interest_year
+        self.update_area(gps_bot_left, gps_top_right)
 
-        meta_list = META_WORKER.get_vals(self.data_file, META_WORKER.labels)
-        for sub_list in meta_list:
-            self.station_list.append(WeatherStation(sub_list, self.interest_year))
-
-    def update(self, gps_bot_left, gps_top_right):
+    def update_area(self, gps_bot_left, gps_top_right):
         META_WORKER.read_filter(LOC_FOLS['metadata']+META_FILES['station-list'], 
                                 LOC_FOLS['metadata']+META_FILES['rectangle-list'], 
                                 ['lat', gps_bot_left[0], gps_top_right[0]], 
@@ -57,9 +48,11 @@ class StationWindow():
         meta_list = META_WORKER.get_vals(self.data_file, META_WORKER.labels)
         for sub_list in meta_list:
             self.station_list.append(WeatherStation(sub_list, self.interest_year))
+        # self.clean_data()
+        # Add this for the actual simulation, where the change in station window is incremental
 
     def make_map(self):
-        coordinate_list = self.meta_worker.get_vals(self.data_file, ['lat', 'lon'])
+        coordinate_list = META_WORKER.get_vals(self.data_file, ['lat', 'lon'])
     
         for i, point in enumerate(coordinate_list):
             for j, val in enumerate(point):
@@ -73,7 +66,7 @@ class StationWindow():
         print(time)
 
     # Checks that all data is available for all stations in the given interest year, deletes if there is not
-    def check_data_availablity(self):
+    def initialize_stations(self):
         updated_station_list = []
         for station in self.station_list:
             file_name = station.get_file_name()
@@ -83,24 +76,31 @@ class StationWindow():
                     if line == file_name:
                         updated_station_list.append(station)  
                         break;
+        self.station_list = updated_station_list
+        for station in self.station_list:
+            station.pull_gz()
 
 
     # Local method, deletes gz files if pulled for a station
     def clean_data(self):
-        return None
-    # The function above may not be necessary
+        for filename in os.listdir(LOC_FOLS['current-data']):
+            found_file = False
+            for station in self.station_list:
+                if station.get_file_name() == filename:
+                    found_file = True
+                    break
+            if not found_file:
+                os.remove(LOC_FOLS['current-data']+filename)
+                logging.debug(TAG+'removing ' + filename)
 
     # Creates or updates the current window snapshot with up to date weather information
-    # Use self.data_worker to work with gz files
-    def update_snapshot(self):
+    def update_time(self, time):
         for station in self.station_list:
-            logging.info(TAG+station)
-        return None
-    # NEXT - INCORPORATE A WORKER IN ORDER TO PULL TIMING INFORMATION 
+            station.update(time)
 
 # Class in order to represent a station - has methods to fetch and store data
 class WeatherStation():
-    DATA_LABELS = ['time', 'lat', 'lon', 'elev', 'win-vector', 'visibility', 'temperature', 'sea-lvl-pressure']
+    DATA_LABELS = ['time', 'lat', 'lon', 'elev', 'winAngle', 'visibility', 'degreesC', 'seaLvlPress']
     DATA_WORKER = DataWorker(LOC_FOLS['templates']+TEMP_FILES['station-data-temp'])
 
     def __init__(self, metadata, interest_year):
@@ -109,20 +109,46 @@ class WeatherStation():
         self.sim_time = datetime.datetime.now()           # Default time for simulation is the most recent time, now
         for i, data in enumerate(metadata):
             self.metaDataDictionary.update({META_WORKER.labels[i] : data})
-
-    # Updates data without updating the time of the object
-    def update(self):
-        return 0
+        self.data = []
     
     # Updates data as well as the sim_time of the object
     def update(self, new_time):
-        print(new_time)
+        logging.info(TAG+'Updating weather station...')
+        prev_line = []
+        prev_line_delta = sys.maxsize
+        time_index = WeatherStation.DATA_WORKER.labels.index('time')
+        desired_time = get_isd_time(new_time)
+        with gzip.open(LOC_FOLS['current-data']+self.get_file_name(), 'rt') as gzFile:
+            for line in gzFile.readlines():
+                parsed_line = WeatherStation.DATA_WORKER.parse_line(line)
+                time = parsed_line[time_index]
+                time_delta = abs(int(time) - desired_time)
+                if time_delta < prev_line_delta:
+                    prev_line = line
+                    prev_line_delta = time_delta
+                elif time_delta < 10000:
+                    break
+                else:
+                    logging.info(TAG+'line not in chronological order encountered')
+        self.data = WeatherStation.DATA_WORKER.get_vals_lined(prev_line, WeatherStation.DATA_LABELS)
+        print(self.data)
+
+    def pull_gz(self):
+        path = self.get_ftp_path()
+        if not os.path.exists(LOC_FOLS['current-data']+self.get_file_name()):
+            with open(LOC_FOLS['current-data']+self.get_file_name(), 'wb') as writer:
+                with FTP(FTP_URL) as ftp:
+                    ftp.login(user = 'anonymous', passwd=FTP_EMAIL)
+                    ftp.retrbinary('RETR '+path, writer.write, 8*1024)
+                    logging.info(TAG+'pulling ' + path)
+        else:
+            logging.info(TAG+path+' already pulled')
 
     def get_file_name(self):
         return self.metaDataDictionary['usaf'] + '-' + self.metaDataDictionary['wban'] + '-' + str(self.interest_year) + '.gz'
 
     def get_ftp_path(self):
-        return FTP_GEN_PATH + self.get_file_name(self.interest_year)
+        return FTP_GEN_PATH + str(self.interest_year) + '/' + self.get_file_name()
 
     def __str__(self):
         return str(self.metaDataDictionary)
@@ -183,3 +209,13 @@ def getsort_us_data():
     logging.info(TAG+'Quicksorting metadata w/latitude')
     worker.quicksort_lg(LOC_FOLS['metadata']+META_FILES['station-list'], LOC_FOLS['metadata']+FIL_TAG, 'lat')
     DataWorker.replace(LOC_FOLS['metadata']+META_FILES['station-list'], LOC_FOLS['metadata']+FIL_TAG)
+
+# Converts datetime into time in the format used in .gz files
+def get_isd_time(time):
+    isd_time = s_ext(str(time.year), 4) + s_ext(str(time.month), 2) + s_ext(str(time.day), 2) + s_ext(str(time.hour), 2) + s_ext(str(time.minute), 2)
+    return int(isd_time)
+
+def s_ext(str, length):
+    while len(str) != length:
+        str = '0'+str
+    return str

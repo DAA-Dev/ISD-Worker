@@ -13,13 +13,14 @@ else:
 
 logging.info('This is the printout for rect1')
 window = StationWindow([39.958175, -91.02172], [41.310949, -87.934570], INTEREST_YEAR)
-window.check_data_availablity()
-window.debug(datetime.datetime.now())
-window.debug(datetime.datetime(2005, 7, 14, 12, 30))
+window.initialize_stations()
+window.update_time(datetime.datetime(2010, 7, 14, 9, 33))
+window.make_map().save('data/map1.html')
 
 logging.info('This is the printout for rect2')
-window.update([38.149284, -108.755224], [41.951239, -102.351951])
-window.check_data_availablity()
+window.update_area([38.149284, -108.755224], [41.951239, -102.351951])
+window.initialize_stations()
+window.make_map().save('data/map2.html')
 
 
 # The following statement creates and saves a map to the data directory in project folder
@@ -48,3 +49,6 @@ window.check_data_availablity()
 #logging.info('Program execution finished')
 
 # Figure out if whole file read and then binary search is faster as opposed to a line by line search shifting prev and next value
+
+# This is the format I'll be using for time window.debug(datetime.datetime(2005, 7, 14, 12, 30))
+# You can add time with the code stepped_time = time + timedelta(days=1, seconds=60, etc.)

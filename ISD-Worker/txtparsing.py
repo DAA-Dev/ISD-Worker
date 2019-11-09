@@ -189,3 +189,14 @@ class DataWorker:
                 vals.append(subvals)
                 line = reader.readline()
         return vals
+
+    def get_vals_lined(self, line, names):
+        vals = []
+        indecies =[]
+        for name in names:
+            indecies.append(self.labels.index(name))
+
+        parsed_list = self.parse_line(line)
+        for index in indecies:
+            vals.append(parsed_list[index])
+        return vals
