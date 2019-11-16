@@ -49,7 +49,7 @@ class StationWindow():
         for sub_list in meta_list:
             self.station_list.append(WeatherStation(sub_list, self.interest_year))
         # self.clean_data()
-        # Add this for the actual simulation, where the change in station window is incremental
+        # Add the line above for the actual simulation, where the change in station window is incremental
 
     def make_map(self):
         coordinate_list = META_WORKER.get_vals(self.data_file, ['lat', 'lon'])
@@ -95,12 +95,19 @@ class StationWindow():
 
     # Creates or updates the current window snapshot with up to date weather information
     def update_time(self, time):
+        logging.info(TAG+'Updating the station time to '+str(time))
         for station in self.station_list:
             station.update(time)
 
+    def time_step(self, increment):
+        logging.info(TAG+'Incrementing the window time by '+str(increment))
+        for station in self.station_list:
+            station.time_step(increment)
+
 # Class in order to represent a station - has methods to fetch and store data
 class WeatherStation():
-    DATA_LABELS = ['time', 'lat', 'lon', 'elev', 'winAngle', 'visibility', 'degreesC', 'seaLvlPress']
+    # These are all the data fields pulled for each station, add/remove from this list to get less or more data
+    DATA_LABELS = ['time', 'lat', 'lon', 'elev', 'winAngle', 'winSpeed', 'visibility', 'degreesC', 'seaLvlPress']
     DATA_WORKER = DataWorker(LOC_FOLS['templates']+TEMP_FILES['station-data-temp'])
 
     def __init__(self, metadata, interest_year):
@@ -117,7 +124,8 @@ class WeatherStation():
         prev_line = []
         prev_line_delta = sys.maxsize
         time_index = WeatherStation.DATA_WORKER.labels.index('time')
-        desired_time = get_isd_time(new_time)
+        self.sim_time = new_time
+        desired_time = get_isd_time(self.sim_time)
         with gzip.open(LOC_FOLS['current-data']+self.get_file_name(), 'rt') as gzFile:
             for line in gzFile.readlines():
                 parsed_line = WeatherStation.DATA_WORKER.parse_line(line)
@@ -126,12 +134,17 @@ class WeatherStation():
                 if time_delta < prev_line_delta:
                     prev_line = line
                     prev_line_delta = time_delta
-                elif time_delta < 10000:
+                elif time_delta < 1000:
                     break
                 else:
                     logging.info(TAG+'line not in chronological order encountered')
         self.data = WeatherStation.DATA_WORKER.get_vals_lined(prev_line, WeatherStation.DATA_LABELS)
         print(self.data)
+
+    # Update the time by a certain datetime increment (increment is a timedelta object)
+    def time_step(self, increment):
+        self.update(self.sim_time + increment)
+        logging.info(TAG+'Updating the station time to '+str(self.sim_time))
 
     def pull_gz(self):
         path = self.get_ftp_path()
@@ -219,3 +232,5 @@ def s_ext(str, length):
     while len(str) != length:
         str = '0'+str
     return str
+
+# Update interest year based on the date inputted!! IMPORTANT
