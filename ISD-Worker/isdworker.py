@@ -1,6 +1,6 @@
 import os, logging, folium, gzip, datetime, sys
 from ftplib import FTP
-from txtparsing import DataWorker
+from txtparsing import DataWorker 
 
 TAG = 'isdworker - '
 FIL_TAG = 'filtered.txt'
